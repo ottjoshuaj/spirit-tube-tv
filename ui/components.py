@@ -40,7 +40,7 @@ def _draw_icon(surface: pygame.Surface, rect: pygame.Rect, icon: str) -> None:
         pygame.draw.line(surface, c, (cx + s, cy - s), (cx + s, cy + s), 2)
     elif icon == 'back':        # ←
         pygame.draw.polygon(surface, c, [(cx + s // 2, cy - s), (cx - s // 2, cy), (cx + s // 2, cy + s)])
-        pygame.draw.line(surface, c, (cx - s // 2, cy), (cx + s, cy), 2)
+        pygame.draw.line(surface, c, (cx - s // 2, cy), (cx + s // 2, cy), 2)
 
 
 def draw_waveform(surface: pygame.Surface, rect: pygame.Rect,
@@ -67,7 +67,7 @@ def draw_signal_bars(surface: pygame.Surface, rect: pygame.Rect,
         bar_h = int(rect.height * (0.2 + 0.8 * (i / (n - 1))))
         x     = rect.left + i * (bar_w + gap)
         y     = rect.bottom - bar_h
-        color = config.ACCENT_COLOR if (i / n) < magnitude else config.BORDER_COLOR
+        color = config.ACCENT_COLOR if (i / n) <= magnitude else config.BORDER_COLOR
         pygame.draw.rect(surface, color, (x, y, bar_w, bar_h), border_radius=2)
 
 
@@ -88,13 +88,15 @@ def make_transport_rects(screen_width: int, screen_height: int) -> dict[str, pyg
     Keys: 'prev', 'scan_back', 'pause', 'scan_fwd', 'next'
     """
     y      = screen_height - config.BUTTON_ROW_HEIGHT + (config.BUTTON_ROW_HEIGHT - config.BTN_HEIGHT) // 2
-    total  = (config.BTN_SIDE_W * 4 + config.BTN_CENTER_W + config.BTN_MARGIN * 4)
+    buttons = [('prev', config.BTN_SIDE_W), ('scan_back', config.BTN_SIDE_W),
+               ('pause', config.BTN_CENTER_W),
+               ('scan_fwd', config.BTN_SIDE_W), ('next', config.BTN_SIDE_W)]
+    n_gaps = len(buttons) - 1
+    total  = sum(w for _, w in buttons) + config.BTN_MARGIN * n_gaps
     x0     = (screen_width - total) // 2
     rects  = {}
     cursor = x0
-    for name, w in [('prev', config.BTN_SIDE_W), ('scan_back', config.BTN_SIDE_W),
-                    ('pause', config.BTN_CENTER_W),
-                    ('scan_fwd', config.BTN_SIDE_W), ('next', config.BTN_SIDE_W)]:
+    for i, (name, w) in enumerate(buttons):
         rects[name] = pygame.Rect(cursor, y, w, config.BTN_HEIGHT)
-        cursor += w + config.BTN_MARGIN
+        cursor += w + (config.BTN_MARGIN if i < len(buttons) - 1 else 0)
     return rects
