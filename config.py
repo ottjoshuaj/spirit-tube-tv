@@ -17,7 +17,7 @@ ACCENT_COLOR      = (204, 68, 255)  # #cc44ff
 DIM_ACCENT        = (102,  0, 170)  # #6600aa
 BORDER_COLOR      = ( 61,  0,  96)  # #3d0060
 BUTTON_BG         = ( 26,  0,  48)  # #1a0030
-BUTTON_ACTIVE_BG  = ( 61,  0,  96)  # #3d0060
+BUTTON_ACTIVE_BG  = ( 61,  0,  96)  # #3d0060 — matches BORDER_COLOR intentionally (filled state)
 HEADER_BG         = (  8,  0,  15)  # #08000f
 
 # SDR sample rates (chosen so sample_rate // AUDIO_RATE is a clean integer)
@@ -53,7 +53,7 @@ BTN_CENTER_W = 54   # pause/play button slightly wider
 BTN_SIDE_W   = 44   # all other buttons
 
 # FM frequencies: 87.5–108.0 MHz, 0.1 MHz steps
-FM_FREQS = [87_500_000 + i * 100_000 for i in range(205)]
+FM_FREQS = [87_500_000 + i * 100_000 for i in range(206)]
 
 # AM frequencies: 530–1700 kHz, 10 kHz steps
 AM_FREQS = [530_000 + i * 10_000 for i in range(118)]

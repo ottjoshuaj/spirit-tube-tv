@@ -2,11 +2,11 @@
 import config
 
 def test_fm_freq_count():
-    assert len(config.FM_FREQS) == 205
+    assert len(config.FM_FREQS) == 206
 
 def test_fm_freq_bounds():
     assert config.FM_FREQS[0]  == 87_500_000
-    assert config.FM_FREQS[-1] == 107_900_000
+    assert config.FM_FREQS[-1] == 108_000_000   # 108.0 MHz inclusive
 
 def test_am_freq_count():
     assert len(config.AM_FREQS) == 118
