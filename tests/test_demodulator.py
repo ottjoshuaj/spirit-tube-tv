@@ -35,6 +35,11 @@ def test_fm_demodulate_dc_tone_is_near_constant():
     audio = fm_demodulate(iq, SAMPLE_RATE, AUDIO_RATE)
     assert np.abs(audio).mean() < 0.01
 
+def test_fm_demodulate_normalized():
+    iq = _make_fm_tone(1000, 65_536)
+    audio = fm_demodulate(iq, SAMPLE_RATE, AUDIO_RATE)
+    assert np.max(np.abs(audio)) <= 1.0 + 1e-6
+
 def test_am_demodulate_returns_float32():
     iq = _make_am_tone(10_000, 1_000, 16_384)
     audio = am_demodulate(iq, 240_000, AUDIO_RATE)

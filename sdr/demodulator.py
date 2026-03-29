@@ -3,23 +3,24 @@ import numpy as np
 
 
 def fm_demodulate(iq: np.ndarray, sample_rate: int, audio_rate: int) -> np.ndarray:
-    """FM discriminator demodulation with integer decimation."""
+    """FM discriminator demodulation with integer decimation. Returns float32 in [-1.0, 1.0]."""
     conj_product = iq[1:] * np.conj(iq[:-1])
-    phase = np.angle(conj_product)
+    phase = np.angle(conj_product)          # range: [-pi, pi]
     decimate = sample_rate // audio_rate
     n_out = len(phase) // decimate
     audio = phase[:n_out * decimate:decimate]
+    audio = audio / np.pi                   # normalize to [-1.0, 1.0]
     return audio.astype(np.float32)
 
 
 def am_demodulate(iq: np.ndarray, sample_rate: int, audio_rate: int) -> np.ndarray:
-    """AM envelope detection with integer decimation."""
+    """AM envelope detection with integer decimation. Returns float32 in [-1.0, 1.0]."""
     envelope = np.abs(iq)
     envelope -= envelope.mean()   # remove DC offset
+    max_val = np.max(np.abs(envelope))   # peak from full signal, not decimated slice
     decimate = sample_rate // audio_rate
     n_out = len(envelope) // decimate
     audio = envelope[:n_out * decimate:decimate]
-    max_val = np.max(np.abs(audio))
     if max_val > 0:
         audio = audio / max_val
     return audio.astype(np.float32)
