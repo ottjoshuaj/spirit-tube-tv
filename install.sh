@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 set -e
+set -o pipefail
+
+# Must NOT be run as root — sudo commands inside the script handle privilege escalation
+if [[ "$EUID" -eq 0 ]]; then
+    echo "ERROR: Do not run this script with sudo. Run as your normal user: ./install.sh"
+    exit 1
+fi
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -44,7 +44,7 @@ Press **Esc** to exit.
 
 ## Troubleshooting
 
-**RTL-SDR not detected**
+**RTL-SDR not detected** *(run these checks after rebooting)*
 ```bash
 lsusb | grep Realtek   # should show Bus ... ID 0bda:2838
 rtl_test              # should show device found
