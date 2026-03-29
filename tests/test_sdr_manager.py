@@ -75,9 +75,7 @@ def test_get_audio_chunk_clears_buffer(MockRtlSdr):
     mgr = SdrManager()
     mgr.start('fm', 98_000_000)
     time.sleep(0.1)
-    mgr.get_audio_chunk()
+    mgr.get_audio_chunk()   # clears buffer
+    mgr.stop()              # halt thread before second read
     chunk2 = mgr.get_audio_chunk()
-    mgr.stop()
-    # Second call may return None or a smaller chunk — must not return same data twice
-    if chunk2 is not None:
-        assert len(chunk2) < 65_536  # much less than first chunk
+    assert chunk2 is None   # buffer must be empty after stop + first read
