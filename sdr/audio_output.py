@@ -11,6 +11,8 @@ class AudioOutput:
         self._stream = None
 
     def start(self) -> None:
+        if self._stream is not None:
+            return
         self._stream = sd.OutputStream(
             samplerate=config.AUDIO_RATE,
             channels=1,
@@ -37,7 +39,7 @@ class AudioOutput:
         try:
             self._queue.put_nowait(samples.astype(np.float32))
         except queue.Full:
-            pass  # drop oldest-ish chunk rather than block
+            pass  # drop this (newest) chunk to avoid blocking the SDR thread
 
     def _callback(self, outdata: np.ndarray, frames: int, time, status) -> None:
         buf = self._leftover.copy()

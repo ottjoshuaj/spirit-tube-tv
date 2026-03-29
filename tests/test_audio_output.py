@@ -1,10 +1,13 @@
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
+import sys
 
 # Patch sounddevice before import so no hardware is needed
-with patch.dict('sys.modules', {'sounddevice': MagicMock()}):
+mock_sd = MagicMock()
+with patch.dict('sys.modules', {'sounddevice': mock_sd}):
     from sdr.audio_output import AudioOutput
+    import sdr.audio_output
 
 def test_push_stores_chunk():
     ao = AudioOutput()
@@ -53,3 +56,14 @@ def test_stop_clears_queue():
     ao.stop()
     assert ao._queue.empty()
     assert len(ao._leftover) == 0
+
+def test_start_creates_stream_and_stop_tears_it_down():
+    ao = AudioOutput()
+    mock_stream = MagicMock()
+    with patch.object(sdr.audio_output.sd, 'OutputStream', return_value=mock_stream):
+        ao.start()
+        mock_stream.start.assert_called_once()
+        ao.stop()
+        mock_stream.stop.assert_called_once()
+        mock_stream.close.assert_called_once()
+    assert ao._stream is None
