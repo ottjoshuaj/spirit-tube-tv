@@ -33,7 +33,7 @@ class TvScreen:
         # Pre-allocated surface for static — avoids per-frame allocation
         self._static_surface = pygame.Surface(
             (config.TV_FRAME_WIDTH, config.TV_FRAME_HEIGHT)
-        )
+        ).convert()
 
     # ------------------------------------------------------------------
 
