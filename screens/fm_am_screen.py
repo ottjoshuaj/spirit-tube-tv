@@ -107,7 +107,7 @@ class FmAmScreen:
             self._step(+1 if self._scan_state == self.SCAN_FORWARD else -1)
 
     def _pull_audio(self) -> None:
-        if self._sdr is None:
+        if self._sdr is None or self._audio is None:
             return
         chunk = self._sdr.get_audio_chunk()
         if chunk is not None and len(chunk) > 0:
