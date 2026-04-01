@@ -1,104 +1,229 @@
 # sdr/sdr_manager.py
-import threading
-from collections import deque
-import numpy as np
-from rtlsdr import RtlSdr
-import config
-from sdr.demodulator import fm_demodulate, am_demodulate, iq_to_frame
+"""Process-isolated SDR manager.
 
+The RTL-SDR device runs in a separate subprocess so that librtlsdr C-level
+crashes (segfaults from USB disconnects / undervoltage) kill only the worker
+— the main pygame app stays alive and auto-respawns the worker.
+"""
+import multiprocessing as mp
+import queue
+import sys
+import threading
+import time
+import numpy as np
+import config
+
+_RESPAWN_DELAY = 3.0  # seconds before respawning dead worker
+
+
+# ======================================================================
+# Worker — runs in an isolated subprocess
+# ======================================================================
+
+def _worker(cmd_q: mp.Queue, audio_q: mp.Queue, frame_q: mp.Queue,
+            mode: str, initial_freq: float) -> None:
+    from rtlsdr import RtlSdr
+    from sdr.demodulator import FmDemodulator, AmDemodulator, iq_to_frame
+
+    sample_rate = {
+        'fm': config.FM_SAMPLE_RATE,
+        'am': config.AM_SAMPLE_RATE,
+        'tv': config.TV_SAMPLE_RATE,
+    }[mode]
+    read_size = config.SDR_READ_SIZE[mode]
+
+    try:
+        sdr = RtlSdr()
+        sdr.sample_rate = sample_rate
+        sdr.center_freq = initial_freq
+        sdr.gain = 'auto'
+    except Exception as e:
+        print(f'[SDR worker] failed to open device: {e}', file=sys.stderr)
+        return
+
+    fm_demod = FmDemodulator(sample_rate, config.AUDIO_RATE) if mode == 'fm' else None
+    am_demod = AmDemodulator(sample_rate, config.AUDIO_RATE) if mode == 'am' else None
+
+    while True:
+        # Drain command queue (non-blocking)
+        try:
+            while True:
+                cmd = cmd_q.get_nowait()
+                if cmd[0] == 'tune':
+                    try:
+                        sdr.center_freq = cmd[1]
+                    except Exception:
+                        pass
+                elif cmd[0] == 'stop':
+                    try:
+                        sdr.close()
+                    except Exception:
+                        pass
+                    return
+        except queue.Empty:
+            pass
+
+        # Read IQ samples
+        try:
+            iq = np.asarray(sdr.read_samples(read_size), dtype=np.complex64)
+        except Exception:
+            time.sleep(0.1)
+            continue
+
+        # Process
+        if mode == 'tv':
+            frame = iq_to_frame(iq, config.TV_FRAME_WIDTH, config.TV_FRAME_HEIGHT)
+            try:
+                # Drop stale frame so we always have the latest
+                try:
+                    frame_q.get_nowait()
+                except queue.Empty:
+                    pass
+                frame_q.put_nowait(frame)
+            except Exception:
+                pass
+
+            # TV audio — decimate amplitude to audio rate
+            amp = np.abs(iq).astype(np.float32)
+            dec = sample_rate // config.AUDIO_RATE
+            n_out = len(amp) // dec
+            if n_out > 0:
+                audio = amp[:n_out * dec].reshape(n_out, dec).mean(axis=1)
+                audio -= audio.mean()
+                peak = np.max(np.abs(audio))
+                if peak > 0:
+                    audio = audio / peak * 0.6
+                try:
+                    audio_q.put_nowait(audio.astype(np.float32))
+                except queue.Full:
+                    pass
+
+        elif mode == 'fm' and fm_demod is not None:
+            audio = fm_demod.process(iq)
+            try:
+                audio_q.put_nowait(audio)
+            except queue.Full:
+                pass
+
+        elif mode == 'am' and am_demod is not None:
+            audio = am_demod.process(iq)
+            try:
+                audio_q.put_nowait(audio)
+            except queue.Full:
+                pass
+
+
+# ======================================================================
+# Manager — runs in the main process
+# ======================================================================
 
 class SdrManager:
     def __init__(self):
-        self._sdr: RtlSdr | None = None
-        self._thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
+        self._proc: mp.Process | None = None
+        self._cmd_q: mp.Queue | None = None
+        self._audio_q: mp.Queue | None = None
+        self._frame_q: mp.Queue | None = None
         self._mode: str | None = None
-        self._lock = threading.Lock()
-        self._frame_buffer: np.ndarray | None = None
-        self._audio_buffer: deque = deque(maxlen=30)
+        self._freq: float = 0.0
+        self._last_frame: np.ndarray | None = None
+        self._monitor: threading.Thread | None = None
+        self._active = False
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API (same interface as before)
     # ------------------------------------------------------------------
 
-    def start(self, mode: str, frequency_hz: float) -> None:
-        """Open SDR device and begin acquisition in a background thread."""
-        if self._thread is not None and self._thread.is_alive():
-            return  # already running, call stop() first
-        self._stop_event.clear()
+    def start(self, mode: str, frequency_hz: float) -> bool:
+        if self._proc is not None and self._proc.is_alive():
+            return True
         self._mode = mode
-        self._sdr = RtlSdr()
-        self._sdr.sample_rate = {
-            'fm': config.FM_SAMPLE_RATE,
-            'am': config.AM_SAMPLE_RATE,
-            'tv': config.TV_SAMPLE_RATE,
-        }[mode]
-        self._sdr.center_freq = frequency_hz
-        self._sdr.gain = 'auto'
-        self._thread = threading.Thread(target=self._read_loop, daemon=True)
-        self._thread.start()
+        self._freq = frequency_hz
+        self._active = True
+        return self._spawn()
 
     def stop(self) -> None:
-        """Stop acquisition thread and close SDR device."""
-        self._stop_event.set()
-        # Close device FIRST so read_samples() unblocks and the thread can exit
-        if self._sdr is not None:
-            self._sdr.close()
-            self._sdr = None
-        if self._thread is not None:
-            self._thread.join(timeout=3.0)
-            self._thread = None
-        with self._lock:
-            self._frame_buffer = None
-            self._audio_buffer.clear()
+        self._active = False
+        if self._cmd_q is not None:
+            try:
+                self._cmd_q.put_nowait(('stop',))
+            except Exception:
+                pass
+        if self._proc is not None:
+            self._proc.join(timeout=3.0)
+            if self._proc.is_alive():
+                self._proc.kill()
+                self._proc.join(timeout=1.0)
+            self._proc = None
+        self._cmd_q = None
+        self._audio_q = None
+        self._frame_q = None
+        self._last_frame = None
 
     def tune(self, frequency_hz: float) -> None:
-        if self._sdr is not None:
-            self._sdr.center_freq = frequency_hz
+        self._freq = frequency_hz
+        if self._cmd_q is not None:
+            try:
+                self._cmd_q.put_nowait(('tune', frequency_hz))
+            except Exception:
+                pass
 
     def is_running(self) -> bool:
-        return not self._stop_event.is_set()
+        return self._active
 
     def get_frame(self) -> np.ndarray | None:
-        """Return latest (TV_FRAME_HEIGHT, TV_FRAME_WIDTH) uint8 frame, or None."""
-        with self._lock:
-            return self._frame_buffer.copy() if self._frame_buffer is not None else None
+        fq = self._frame_q
+        if fq is not None:
+            try:
+                while True:  # drain, keep latest
+                    self._last_frame = fq.get_nowait()
+            except (queue.Empty, EOFError, OSError):
+                pass
+        return self._last_frame.copy() if self._last_frame is not None else None
 
     def get_audio_chunk(self) -> np.ndarray | None:
-        """Return all buffered audio samples as a flat float32 array, clearing the buffer."""
-        with self._lock:
-            if not self._audio_buffer:
-                return None
-            chunk = np.concatenate(self._audio_buffer)
-            self._audio_buffer.clear()
-            return chunk
+        aq = self._audio_q
+        if aq is None:
+            return None
+        chunks = []
+        try:
+            while True:
+                chunks.append(aq.get_nowait())
+        except (queue.Empty, EOFError, OSError):
+            pass
+        if not chunks:
+            return None
+        return np.concatenate(chunks)
 
     # ------------------------------------------------------------------
-    # Background thread
+    # Subprocess management
     # ------------------------------------------------------------------
 
-    def _read_loop(self) -> None:
-        read_size = config.SDR_READ_SIZE[self._mode]
-        while not self._stop_event.is_set():
-            try:
-                iq = self._sdr.read_samples(read_size)
-                self._process(np.asarray(iq, dtype=np.complex64))
-            except Exception:
-                self._stop_event.set()
-                break
+    def _spawn(self) -> bool:
+        # Fresh queues — old ones may be corrupt from a crashed subprocess
+        self._cmd_q = mp.Queue(maxsize=20)
+        self._audio_q = mp.Queue(maxsize=30)
+        self._frame_q = mp.Queue(maxsize=2)
+        self._proc = mp.Process(
+            target=_worker,
+            args=(self._cmd_q, self._audio_q, self._frame_q,
+                  self._mode, self._freq),
+            daemon=True,
+        )
+        self._proc.start()
+        # Monitor thread watches the subprocess and respawns on crash
+        self._monitor = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._monitor.start()
+        return True
 
-    def _process(self, iq: np.ndarray) -> None:
-        if self._mode == 'tv':
-            frame = iq_to_frame(iq, config.TV_FRAME_WIDTH, config.TV_FRAME_HEIGHT)
-            with self._lock:
-                self._frame_buffer = frame
-
-        elif self._mode == 'fm':
-            audio = fm_demodulate(iq, config.FM_SAMPLE_RATE, config.AUDIO_RATE)
-            with self._lock:
-                self._audio_buffer.append(audio)
-
-        elif self._mode == 'am':
-            audio = am_demodulate(iq, config.AM_SAMPLE_RATE, config.AUDIO_RATE)
-            with self._lock:
-                self._audio_buffer.append(audio)
+    def _monitor_loop(self) -> None:
+        """Watch the worker subprocess; respawn if it dies unexpectedly."""
+        while self._active:
+            time.sleep(1.0)
+            if self._proc is not None and not self._proc.is_alive():
+                code = self._proc.exitcode
+                print(f'[SDR] worker died (exit={code}), '
+                      f'respawning in {_RESPAWN_DELAY}s...', file=sys.stderr)
+                time.sleep(_RESPAWN_DELAY)
+                if self._active:
+                    self._spawn()
+                return  # new monitor thread started by _spawn
