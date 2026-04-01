@@ -3,5 +3,5 @@ Type=Application
 Name=Spirit Tube TV
 Comment=RTL-SDR spirit box — FM, AM, and analog TV bands
 Terminal=false
-Exec=/usr/bin/python3 __INSTALL_DIR__/main.py
+Exec=__INSTALL_DIR__/launch.sh
 X-GNOME-Autostart-enabled=true

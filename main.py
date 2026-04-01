@@ -6,6 +6,11 @@ from sdr.audio_output import AudioOutput
 from screens.band_select import BandSelectScreen
 from screens.fm_am_screen import FmAmScreen
 from screens.tv_screen import TvScreen
+from screens.yesno_screen import YesNoScreen
+from screens.spiritbox_screen import SpiritBoxScreen
+from screens.disturbance_screen import DisturbanceScreen
+from screens.phonetic_screen import PhoneticScreen
+from screens.screensaver import Screensaver
 
 
 def main() -> None:
@@ -22,6 +27,7 @@ def main() -> None:
     audio = AudioOutput()
 
     current_screen = BandSelectScreen()
+    screensaver = Screensaver()
     running = True
 
     while running:
@@ -34,22 +40,64 @@ def main() -> None:
                     running = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
+                # If screensaver is showing, dismiss it and swallow the tap
+                if screensaver.active:
+                    screensaver.poke()
+                    continue
+
+                screensaver.poke()
                 result = current_screen.handle_touch(event.pos)
 
-                if result == 'back':
-                    # Full stop — SDR + audio halted before returning to menu
+                if result == 'exit':
+                    running = False
+
+                elif result == 'back':
                     current_screen.stop()
                     current_screen = BandSelectScreen()
 
-                elif result in ('fm', 'am'):
-                    current_screen = FmAmScreen(result)
-                    current_screen.start(sdr, audio)
+                elif result == 'fm':
+                    new_screen = FmAmScreen('fm')
+                    if new_screen.start(sdr, audio):
+                        current_screen = new_screen
 
                 elif result == 'tv':
-                    current_screen = TvScreen()
-                    current_screen.start(sdr, audio)
+                    new_screen = TvScreen()
+                    if new_screen.start(sdr, audio):
+                        current_screen = new_screen
 
-        current_screen.render(screen)
+                elif result == 'spiritbox':
+                    new_screen = SpiritBoxScreen()
+                    if new_screen.start(sdr, audio):
+                        current_screen = new_screen
+
+                elif result == 'yesno':
+                    new_screen = YesNoScreen()
+                    if new_screen.start():
+                        current_screen = new_screen
+
+                elif result == 'disturbance':
+                    new_screen = DisturbanceScreen()
+                    if new_screen.start():
+                        current_screen = new_screen
+
+                elif result == 'phonetic':
+                    new_screen = PhoneticScreen()
+                    if new_screen.start():
+                        current_screen = new_screen
+
+        # Screensaver only activates on the band-select (main menu) screen
+        if isinstance(current_screen, BandSelectScreen):
+            screensaver.update()
+        else:
+            screensaver.poke()
+
+        if screensaver.active:
+            screensaver.render(screen)
+        else:
+            try:
+                current_screen.render(screen)
+            except Exception:
+                pass  # skip bad frame rather than crash
         pygame.display.flip()
         clock.tick(config.TARGET_FPS)
 

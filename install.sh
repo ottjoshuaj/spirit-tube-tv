@@ -23,7 +23,8 @@ sudo apt-get install -y \
     python3-pip \
     python3-pygame \
     python3-numpy \
-    python3-dev
+    python3-dev \
+    pipewire-alsa
 
 # 2. Python packages
 echo "[2/5] Installing Python packages..."
@@ -45,6 +46,8 @@ sudo usermod -aG plugdev "$USER"
 
 # 5. Autostart
 echo "[5/5] Installing autostart entry..."
+chmod +x "$INSTALL_DIR/launch.sh"
+sed -i "s|/home/jott/spirit-tube-tv|$INSTALL_DIR|g" "$INSTALL_DIR/launch.sh"
 mkdir -p "$HOME/.config/autostart"
 sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
     "$INSTALL_DIR/autostart/spirit-tube-tv.desktop" \
