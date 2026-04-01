@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# Wait for PipeWire and Bluetooth speaker to be ready before starting
+# Launch Spirit Tube TV — ensures single instance, waits for audio
 
 BT_MAC="5C:FB:7C:B7:B5:AE"
+
+# Single instance guard — exit if already running
+if pidof -x "$(basename "$0")" -o $$ >/dev/null 2>&1; then
+    exit 0
+fi
+if pgrep -f 'python3.*main\.py' >/dev/null 2>&1; then
+    exit 0
+fi
 
 # Give PipeWire time to start
 sleep 3

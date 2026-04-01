@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Spirit Tube TV
-Comment=RTL-SDR spirit box — FM, AM, and analog TV bands
-Terminal=false
+Comment=RTL-SDR ghost hunting toolkit
 Exec=__INSTALL_DIR__/launch.sh
+Icon=__INSTALL_DIR__/icon.png
+Terminal=false
+Categories=AudioVideo;
 X-GNOME-Autostart-enabled=true
